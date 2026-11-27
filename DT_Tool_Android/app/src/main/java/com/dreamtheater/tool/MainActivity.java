@@ -22,6 +22,7 @@ import android.widget.Toast;
 import androidx.webkit.WebViewAssetLoader;
 
 import java.io.OutputStream;
+import java.util.ArrayList;
 
 public class MainActivity extends Activity {
     private static final int REQ_FILE = 42;
@@ -29,6 +30,9 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCb;
     private OutputStream out;
     private Uri outUri;
+    private String curMime = "*/*";
+    private final ArrayList<Uri> batch = new ArrayList<>();
+    private final ArrayList<String> batchMime = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle b) {
@@ -96,6 +100,7 @@ public class MainActivity extends Activity {
     private class Bridge {
         @JavascriptInterface
         public void open(String name, String mime) {
+            curMime = mime;
             try {
                 ContentResolver cr = getContentResolver();
                 ContentValues cv = new ContentValues();
@@ -122,6 +127,8 @@ public class MainActivity extends Activity {
                 ContentValues cv = new ContentValues();
                 cv.put(MediaStore.Downloads.IS_PENDING, 0);
                 getContentResolver().update(outUri, cv, null, null);
+                batch.add(outUri);
+                batchMime.add(curMime);
             } catch (Exception e) { toast("Error: " + e.getMessage()); }
             out = null;
         }
@@ -130,6 +137,31 @@ public class MainActivity extends Activity {
         public void abort() {
             try { if (out != null) out.close(); if (outUri != null) getContentResolver().delete(outUri, null, null); } catch (Exception ignored) {}
             out = null;
+        }
+
+        @JavascriptInterface
+        public void resetBatch() { batch.clear(); batchMime.clear(); }
+
+        @JavascriptInterface
+        public void share() {
+            if (batch.isEmpty()) { toast("Todavia no hay nada exportado"); return; }
+            runOnUiThread(() -> {
+                try {
+                    String type = batchMime.get(0);
+                    for (String m : batchMime) if (!m.equals(type)) { type = "*/*"; break; }
+                    Intent i;
+                    if (batch.size() == 1) {
+                        i = new Intent(Intent.ACTION_SEND);
+                        i.putExtra(Intent.EXTRA_STREAM, batch.get(0));
+                    } else {
+                        i = new Intent(Intent.ACTION_SEND_MULTIPLE);
+                        i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, new ArrayList<>(batch));
+                    }
+                    i.setType(type);
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(Intent.createChooser(i, "Share"));
+                } catch (Exception e) { toast("No se pudo compartir: " + e.getMessage()); }
+            });
         }
     }
 }

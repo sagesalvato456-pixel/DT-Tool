@@ -2385,6 +2385,18 @@ html,body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent;-webk
   .menu .mi{padding:10px 12px 10px 8px;font-size:14px}
   #helpBox .hb{width:92vw;columns:1}
 }
+
+#mNew{display:inline-flex;min-height:34px;font-size:13px}
+#dtDlg{position:fixed;inset:0;background:#000a;z-index:120;display:none;align-items:center;justify-content:center}
+#dtDlg.on{display:flex}
+#dtDlg .box{background:#1f1e26;border:1px solid #44425a;border-radius:12px;padding:18px;width:min(88vw,360px)}
+#dtDlg h4{margin:0 0 6px;font-size:15px;color:#d9cffc}
+#dtDlg p{margin:0 0 14px;color:var(--dim);font-size:13px;line-height:1.4}
+#dtDlg .bt{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+#dtDlg .bt button{padding:9px 14px;font-size:13px}
+#dtFocusExit{display:none;position:fixed;right:12px;top:12px;z-index:70;opacity:.85}
+body.dt-focus #dtFocusExit{display:block}
+body.dt-focus #tools,body.dt-focus #shapes,body.dt-focus #optbar,body.dt-focus #zoomBar{display:none!important}
 </style>
 <script id="dt-mobile-js">
 (function(){
@@ -2418,6 +2430,7 @@ html,body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent;-webk
     window.saveFile=async function(name,blob){
       try{
         const buf=new Uint8Array(await blob.arrayBuffer());
+        if(!window.__dtKeep) AndroidBridge.resetBatch();
         AndroidBridge.open(name, blob.type||'application/octet-stream');
         const CH=3*256*1024;
         for(let i=0;i<buf.length;i+=CH){
@@ -2429,6 +2442,44 @@ html,body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent;-webk
       }catch(err){ try{AndroidBridge.abort();}catch(_){} toast('Save failed: '+err.message); }
     };
   }
+
+  /* ---- extras: New project, Export both, Share, Focus mode ---- */
+  const dlg=document.createElement('div'); dlg.id='dtDlg'; dlg.innerHTML='<div class="box"><h4></h4><p></p><div class="bt"></div></div>'; B.appendChild(dlg);
+  let dlgRes=null;
+  function dtAsk(title,msg,btns){ return new Promise(res=>{
+    dlg.querySelector('h4').textContent=title; dlg.querySelector('p').textContent=msg;
+    const bt=dlg.querySelector('.bt'); bt.innerHTML='';
+    btns.forEach(([label,val,cls])=>{ const b=document.createElement('button'); b.textContent=label; if(cls) b.className=cls; b.onclick=()=>{ dlg.classList.remove('on'); dlgRes=null; res(val); }; bt.appendChild(b); });
+    dlgRes=()=>{ dlg.classList.remove('on'); dlgRes=null; res('c'); };
+    dlg.classList.add('on'); }); }
+  const prevBack=window.__dtBack;
+  window.__dtBack=()=>{ if(dlgRes){ dlgRes(); return true; } return prevBack(); };
+
+  async function newProject(){
+    const r=await dtAsk('New project','Start a fresh design? The current one will be replaced.',[['Cancel','c'],['Discard','d'],['Save first','s','primary']]);
+    if(r==='c'||!r) return;
+    if(r==='s'){ try{ await saveFile(safeName()+'_pattern.json', new Blob([JSON.stringify(JSON.parse(snapshot()),null,1)],{type:'application/json'})); }catch(e){} }
+    try{ clearTimeout(commitT); }catch(e){}
+    try{ localStorage.removeItem('fcps3-autosave'); }catch(e){}
+    location.reload();
+  }
+  async function exportBoth(){
+    try{
+      window.__dtKeep=false; await Q('#expBg').onclick();
+      window.__dtKeep=true;  await Q('#expTxt').onclick();
+    } finally { window.__dtKeep=false; }
+  }
+  function shareLast(){ if(window.AndroidBridge) AndroidBridge.share(); else toast('Share only works in the Android app'); }
+  const fx=document.createElement('button'); fx.id='dtFocusExit'; fx.textContent='Exit focus'; B.appendChild(fx);
+  function toggleFocus(){ B.classList.toggle('dt-focus'); setTimeout(()=>window.dispatchEvent(new Event('resize')),60); }
+  fx.onclick=toggleFocus;
+  const bn=document.createElement('button'); bn.id='mNew'; bn.className='ibtn'; bn.textContent='\uFF0B New'; bn.title='New project'; bn.onclick=newProject;
+  mb.insertBefore(bn, bl.nextSibling);
+
+  const F0=MENUS.File;
+  MENUS.File=()=>[['New project\u2026','',newProject],'-',...F0(),'-',['Export BG + lettering','',exportBoth],['Share last export\u2026','',shareLast]];
+  const V0=MENUS.View;
+  MENUS.View=()=>[...V0(),'-',['Focus mode (hide tools)','',toggleFocus,{check:()=>B.classList.contains('dt-focus')}]];
   setTimeout(()=>window.dispatchEvent(new Event('resize')),150);
   window.addEventListener('orientationchange',()=>setTimeout(()=>window.dispatchEvent(new Event('resize')),250));
 })();
